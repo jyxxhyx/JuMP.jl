@@ -1,11 +1,11 @@
 #  Copyright 2017, Iain Dunning, Joey Huchette, Miles Lubin, and contributors
 #  This Source Code Form is subject to the terms of the Mozilla Public
 #  License, v. 2.0. If a copy of the MPL was not distributed with this
-#  file, You can obtain one at http://mozilla.org/MPL/2.0/.
+#  file, You can obtain one at https://mozilla.org/MPL/2.0/.
 #############################################################################
 # JuMP
 # An algebraic modeling language for Julia
-# See http://github.com/JuliaOpt/JuMP.jl
+# See https://github.com/jump-dev/JuMP.jl
 #############################################################################
 
 module JuMP
@@ -13,15 +13,21 @@ module JuMP
 using LinearAlgebra
 using SparseArrays
 
+import MutableArithmetics
+const _MA = MutableArithmetics
+
 import MathOptInterface
 const MOI = MathOptInterface
 const MOIU = MOI.Utilities
+const MOIB = MOI.Bridges
 
 import Calculus
 import DataStructures.OrderedDict
 import ForwardDiff
 include("_Derivatives/_Derivatives.jl")
 using ._Derivatives
+
+include("Containers/Containers.jl")
 
 # Exports are at the end of the file.
 
@@ -36,88 +42,101 @@ Base.@deprecate(setlowerbound,     JuMP.set_lower_bound)
 Base.@deprecate(setupperbound,     JuMP.set_upper_bound)
 Base.@deprecate(linearterms,       JuMP.linear_terms)
 
-writeLP(args...; kargs...) = error("writeLP has been removed from JuMP. Use `MathOptFormat.jl` instead.")
-writeMPS(args...; kargs...) = error("writeMPS has been removed from JuMP. Use `MathOptFormat.jl` instead.")
+function writeLP(args...; kargs...)
+    error("writeLP has been removed from JuMP. Use `write_to_file` instead.")
+end
+function writeMPS(args...; kargs...)
+    error("writeMPS has been removed from JuMP. Use `write_to_file` instead.")
+end
 
 include("utils.jl")
 
 const _MOIVAR = MOI.VariableIndex
 const _MOICON{F,S} = MOI.ConstraintIndex{F,S}
-const _MOILB = _MOICON{MOI.SingleVariable,MOI.GreaterThan{Float64}}
-const _MOIUB = _MOICON{MOI.SingleVariable,MOI.LessThan{Float64}}
-const _MOIFIX = _MOICON{MOI.SingleVariable,MOI.EqualTo{Float64}}
-const _MOIINT = _MOICON{MOI.SingleVariable,MOI.Integer}
-const _MOIBIN = _MOICON{MOI.SingleVariable,MOI.ZeroOne}
-
-MOIU.@model(_MOIModel,
-            (MOI.ZeroOne, MOI.Integer),
-            (MOI.EqualTo, MOI.GreaterThan, MOI.LessThan, MOI.Interval),
-            (MOI.Zeros, MOI.Nonnegatives, MOI.Nonpositives, MOI.SecondOrderCone,
-             MOI.RotatedSecondOrderCone, MOI.GeometricMeanCone,
-             MOI.PositiveSemidefiniteConeTriangle,
-             MOI.PositiveSemidefiniteConeSquare,
-             MOI.RootDetConeTriangle, MOI.RootDetConeSquare,
-             MOI.LogDetConeTriangle, MOI.LogDetConeSquare),
-            (),
-            (MOI.SingleVariable,),
-            (MOI.ScalarAffineFunction, MOI.ScalarQuadraticFunction),
-            (MOI.VectorOfVariables,),
-            (MOI.VectorAffineFunction, MOI.VectorQuadraticFunction))
 
 """
-    OptimizerFactory
+    optimizer_with_attributes(optimizer_constructor, attrs::Pair...)
 
-User-friendly closure that creates new MOI models. New `OptimizerFactory`s are
-created with [`with_optimizer`](@ref) and new models are created from the
-optimizer factory `optimizer_factory` with `optimizer_factory()`.
+Groups an optimizer constructor with the list of attributes `attrs`. Note that
+it is equivalent to `MOI.OptimizerWithAttributes`.
 
-## Examples
+When provided to the `Model` constructor or to [`set_optimizer`](@ref), it
+creates an optimizer by calling `optimizer_constructor()`, and then sets the
+attributes using [`set_optimizer_attribute`](@ref).
 
-The following construct an optimizer factory and then use it to create two
-independent `Ipopt.Optimizer`s:
+## Example
+
 ```julia
-optimizer_factory = with_optimizer(Ipopt.Optimizer, print_level=0)
-optimizer1 = optimizer_factory()
-optimizer2 = optimizer_factory()
+model = Model(
+    optimizer_with_attributes(
+        Gurobi.Optimizer, "Presolve" => 0, "OutputFlag" => 1
+    )
+)
 ```
+is equivalent to:
+```julia
+model = Model(Gurobi.Optimizer)
+set_optimizer_attribute(model, "Presolve", 0)
+set_optimizer_attribute(model, "OutputFlag", 1)
+```
+
+## Note
+
+The string names of the attributes are specific to each solver. One should
+consult the solver's documentation to find the attributes of interest.
+
+See also: [`set_optimizer_attribute`](@ref), [`set_optimizer_attributes`](@ref),
+[`get_optimizer_attribute`](@ref).
 """
-struct OptimizerFactory
-    # The constructor can be
-    # * `Function`: a function, or
-    # * `DataType`: a type, or
-    # * `UnionAll`: a type with missing parameters.
-    constructor
-    args::Tuple
-    kwargs # type changes from Julia v0.6 to v0.7 so we leave it untyped for now
+function optimizer_with_attributes(optimizer_constructor, args::Pair...)
+    return MOI.OptimizerWithAttributes(optimizer_constructor, args...)
 end
 
+function with_optimizer(constructor; kwargs...)
+    if isempty(kwargs)
+        deprecation_message = """
+`with_optimizer` is deprecated. Adapt the following example to update your code:
+`with_optimizer(Ipopt.Optimizer)` becomes `Ipopt.Optimizer`.
 """
-    with_optimizer(constructor, args...; kwargs...)
-
-Return an `OptimizerFactory` that creates optimizers using the constructor
-`constructor` with positional arguments `args` and keyword arguments `kwargs`.
-
-## Examples
-
-The following returns an optimizer factory that creates `Ipopt.Optimizer`s using
-the constructor call `Ipopt.Optimizer(print_level=0)`:
-```julia
-with_optimizer(Ipopt.Optimizer, print_level=0)
-```
+        Base.depwarn(deprecation_message, :with_optimizer)
+        return constructor
+    else
+        deprecation_message = """
+`with_optimizer` is deprecated. Adapt the following example to update your code:
+`with_optimizer(Ipopt.Optimizer, max_cpu_time=60.0)` becomes `optimizer_with_attributes(Ipopt.Optimizer, "max_cpu_time" => 60.0)`.
 """
-function with_optimizer(constructor,
-                        args...; kwargs...)
-    if !applicable(constructor, args...)
-        error("$constructor does not have any method with arguments $args.",
-              "The first argument of `with_optimizer` should be callable with",
-              " the other argument of `with_optimizer`.")
+        Base.depwarn(deprecation_message, :with_optimizer_kw)
+        params = [MOI.RawParameter(string(kw.first)) => kw.second for kw in kwargs]
+        return MOI.OptimizerWithAttributes(constructor, params)
     end
-    return OptimizerFactory(constructor, args, kwargs)
 end
-
-function (optimizer_factory::OptimizerFactory)()
-    return optimizer_factory.constructor(optimizer_factory.args...;
-                                         optimizer_factory.kwargs...)
+function with_optimizer(constructor, args...; kwargs...)
+    if isempty(kwargs)
+        deprecation_message = """
+`with_optimizer` is deprecated. Adapt the following example to update your code:
+`with_optimizer(Gurobi.Optimizer, env)` becomes `() -> Gurobi.Optimizer(env)`.
+"""
+        Base.depwarn(deprecation_message, :with_optimizer_args)
+        if !applicable(constructor, args...)
+            error("$constructor does not have any method with arguments $args.",
+                  " The first argument of `with_optimizer` should be callable with",
+                  " the other argument of `with_optimizer`.")
+        end
+        return with_optimizer(() -> constructor(args...); kwargs...)
+    else
+        deprecation_message = """
+`with_optimizer` is deprecated. Adapt the following example to update your code:
+`with_optimizer(Gurobi.Optimizer, env, Presolve=0)` becomes `optimizer_with_attributes(() -> Gurobi.Optimizer(env), "Presolve" => 0)`.
+"""
+        Base.depwarn(deprecation_message, :with_optimizer_args_kw)
+        if !applicable(constructor, args...)
+            error("$constructor does not have any method with arguments $args.",
+                  " The first argument of `with_optimizer` should be callable with",
+                  " the other argument of `with_optimizer`.")
+        end
+        params = [MOI.RawParameter(string(kw.first)) => kw.second for kw in kwargs]
+        return MOI.OptimizerWithAttributes(() -> constructor(args...), params)
+    end
 end
 
 include("shapes.jl")
@@ -141,13 +160,6 @@ abstract type AbstractModel end
 A mathematical model of an optimization problem.
 """
 mutable struct Model <: AbstractModel
-    # Special variablewise properties that we keep track of:
-    # lower bound, upper bound, fixed, integrality, binary
-    variable_to_lower_bound::Dict{_MOIVAR, _MOILB}
-    variable_to_upper_bound::Dict{_MOIVAR, _MOIUB}
-    variable_to_fix::Dict{_MOIVAR, _MOIFIX}
-    variable_to_integrality::Dict{_MOIVAR, _MOIINT}
-    variable_to_zero_one::Dict{_MOIVAR, _MOIBIN}
     # In MANUAL and AUTOMATIC modes, CachingOptimizer.
     # In DIRECT mode, will hold an AbstractOptimizer.
     moi_backend::MOI.AbstractOptimizer
@@ -174,48 +186,50 @@ mutable struct Model <: AbstractModel
 end
 
 """
-    Model(; caching_mode::MOIU.CachingOptimizerMode=MOIU.AUTOMATIC,
-            bridge_constraints::Bool=true)
+    Model(; caching_mode::MOIU.CachingOptimizerMode=MOIU.AUTOMATIC)
 
 Return a new JuMP model without any optimizer; the model is stored the model in
 a cache. The mode of the `CachingOptimizer` storing this cache is
-`caching_mode`. The optimizer can be set later in the [`optimize!`](@ref)
-call. If `bridge_constraints` is true, constraints that are not supported by the
-optimizer are automatically bridged to equivalent supported constraints when
-an appropriate transformation is defined in the `MathOptInterface.Bridges`
-module or is defined in another module and is explicitely added.
+`caching_mode`. Use [`set_optimizer`](@ref) to set the optimizer before
+calling [`optimize!`](@ref).
 """
 function Model(; caching_mode::MOIU.CachingOptimizerMode=MOIU.AUTOMATIC,
                  solver=nothing)
     if solver !== nothing
         error("The solver= keyword is no longer available in JuMP 0.19 and " *
               "later. See the JuMP documentation " *
-              "(http://www.juliaopt.org/JuMP.jl/latest/) for latest syntax.")
+              "(https://jump.dev/JuMP.jl/latest/) for latest syntax.")
     end
-    universal_fallback = MOIU.UniversalFallback(_MOIModel{Float64}())
+    universal_fallback = MOIU.UniversalFallback(MOIU.Model{Float64}())
     caching_opt = MOIU.CachingOptimizer(universal_fallback,
                                         caching_mode)
     return direct_model(caching_opt)
 end
 
 """
-    Model(optimizer_factory::OptimizerFactory;
+    Model(optimizer_factory;
           caching_mode::MOIU.CachingOptimizerMode=MOIU.AUTOMATIC,
           bridge_constraints::Bool=true)
 
-Return a new JuMP model using the optimizer factory `optimizer_factory` to
-create the optimizer. The optimizer factory can be created by the
-[`with_optimizer`](@ref) function.
+Return a new JuMP model with the provided optimizer and bridge settings. This
+function is equivalent to:
+```julia
+    model = Model()
+    set_optimizer(model, optimizer_factory,
+                  bridge_constraints=bridge_constraints)
+    return model
+```
+See [`set_optimizer`](@ref) for the description of the `optimizer_factory` and
+`bridge_constraints` arguments.
 
 ## Examples
 
-The following creates a model using the optimizer
-`Ipopt.Optimizer(print_level=0)`:
+The following creates a model with the optimizer set to `Ipopt`:
 ```julia
-model = Model(with_optimizer(Ipopt.Optimizer, print_level=0))
+model = Model(Ipopt.Optimizer)
 ```
 """
-function Model(optimizer_factory::OptimizerFactory;
+function Model(optimizer_factory;
                bridge_constraints::Bool=true, kwargs...)
     model = Model(; kwargs...)
     set_optimizer(model, optimizer_factory,
@@ -243,12 +257,7 @@ in mind the following implications of creating models using this *direct* mode:
 """
 function direct_model(backend::MOI.ModelLike)
     @assert MOI.is_empty(backend)
-    return Model(Dict{_MOIVAR, _MOILB}(),
-                 Dict{_MOIVAR, _MOIUB}(),
-                 Dict{_MOIVAR, _MOIFIX}(),
-                 Dict{_MOIVAR, _MOIINT}(),
-                 Dict{_MOIVAR, _MOIBIN}(),
-                 backend,
+    return Model(backend,
                  Dict{_MOICON, AbstractShape}(),
                  Set{Any}(),
                  nothing,
@@ -370,6 +379,7 @@ function _moi_add_bridge(caching_opt::MOIU.CachingOptimizer,
     return
 end
 
+
 """
      add_bridge(model::Model,
                 BridgeType::Type{<:MOI.Bridges.AbstractBridge})
@@ -388,6 +398,80 @@ function add_bridge(model::Model,
 end
 
 """
+     print_bridge_graph([io::IO,] model::Model)
+
+Print the hyper-graph containing all variable, constraint, and objective types
+that could be obtained by bridging the variables, constraints, and objectives
+that are present in the model.
+
+Each node in the hyper-graph corresponds to a variable, constraint, or objective
+type.
+  * Variable nodes are indicated by `[ ]`
+  * Constraint nodes are indicated by `( )`
+  * Objective nodes are indicated by `| |`
+The number inside each pair of brackets is an index of the node in the
+hyper-graph.
+
+Note that this hyper-graph is the full list of possible transformations. When
+the bridged model is created, we select the shortest hyper-path(s) from this
+graph, so many nodes may be un-used.
+
+For more information, see Legat, B., Dowson, O., Garcia, J., and Lubin, M.
+(2020).  "MathOptInterface: a data structure for mathematical optimization
+problems." URL: https://arxiv.org/abs/2002.03447
+"""
+print_bridge_graph(model::Model) = print_bridge_graph(Base.stdout, model)
+
+function print_bridge_graph(io::IO, model::Model)
+    # The type of `backend(model)` is not type-stable, so we use a function
+    # barrier (`_moi_print_bridge_graph`) to improve performance.
+    return _moi_print_bridge_graph(io, backend(model))
+end
+
+function _moi_print_bridge_graph(
+    io::IO, model::MOI.Bridges.LazyBridgeOptimizer
+)
+    return MOI.Bridges.print_graph(io, model)
+end
+
+function _moi_print_bridge_graph(io::IO, model::MOIU.CachingOptimizer)
+    return _moi_print_bridge_graph(io, model.optimizer)
+end
+
+function _moi_print_bridge_graph(::IO, ::MOI.ModelLike)
+    error(
+        "Cannot print bridge graph if `bridge_constraints` was set to " *
+        "`false` in the `Model` constructor."
+    )
+end
+
+"""
+    empty!(model::Model) -> model
+
+Empty the model, that is, remove all variables, constraints and model
+attributes but not optimizer attributes. Always return the argument.
+
+Note: removes extensions data.
+"""
+function Base.empty!(model::Model)::Model
+    # The method changes the Model object to, basically, the state it was when
+    # created (if the optimizer was already pre-configured). The exceptions
+    # are:
+    # * optimize_hook: it is basically an optimizer attribute and we promise
+    #   to leave them alone (as do MOI.empty!).
+    # * bridge_types: for consistency with MOI.empty! for
+    #   MOI.Bridges.LazyBridgeOptimizer.
+    # * operator_counter: it is just a counter for a single-time warning
+    #   message (so keeping it helps to discover inneficiencies).
+    MOI.empty!(model.moi_backend)
+    empty!(model.shapes)
+    model.nlp_data = nothing
+    empty!(model.obj_dict)
+    empty!(model.ext)
+    return model
+end
+
+"""
     num_variables(model::Model)::Int64
 
 Returns number of variables in `model`.
@@ -403,8 +487,65 @@ function num_nl_constraints(model::Model)
     return model.nlp_data !== nothing ? length(model.nlp_data.nlconstr) : 0
 end
 
-# TODO(IainNZ): Document these too.
+"""
+    object_dictionary(model::Model)
+
+Return the dictionary that maps the symbol name of a variable, constraint, or
+expression to the corresponding object.
+
+Objects are registered to a specific symbol in the macros.
+For example, `@variable(model, x[1:2, 1:2])` registers the array of variables
+`x` to the symbol `:x`.
+
+This method should be defined for any subtype of `AbstractModel`.
+"""
 object_dictionary(model::Model) = model.obj_dict
+
+"""
+    unregister(model::Model, key::Symbol)
+
+Unregister the name `key` from `model` so that a new variable, constraint, or
+expression can be created with the same key.
+
+Note that this will not delete the object `model[key]`; it will just remove the
+reference at `model[key]`. To delete the object, use
+```julia
+delete(model, model[key])
+unregister(model, key)
+```
+
+## Examples
+
+```jldoctest; setup=:(model = Model())
+julia> @variable(model, x)
+x
+
+julia> @variable(model, x)
+ERROR: An object of name x is already attached to this model. If
+this is intended, consider using the anonymous construction syntax,
+e.g., `x = @variable(model, [1:N], ...)` where the name of the object
+does not appear inside the macro.
+
+Alternatively, use `unregister(model, :x)` to first unregister the
+existing name from the model. Note that this will not delete the object;
+it will just remove the reference at `model[:x]`.
+[...]
+
+julia> num_variables(model)
+1
+
+julia> unregister(model, :x)
+
+julia> @variable(model, x)
+x
+
+julia> num_variables(model)
+2
+"""
+function unregister(model::AbstractModel, key::Symbol)
+    delete!(object_dictionary(model), key)
+    return
+end
 
 """
     termination_status(model::Model)
@@ -417,23 +558,39 @@ function termination_status(model::Model)
 end
 
 """
-    primal_status(model::Model)
+    raw_status(model::Model)
 
-Return the status of the most recent primal solution of the solver (i.e., the
-MathOptInterface model attribute `PrimalStatus`).
+Return the reason why the solver stopped in its own words (i.e., the
+MathOptInterface model attribute `RawStatusString`).
 """
-function primal_status(model::Model)
-    return MOI.get(model, MOI.PrimalStatus())::MOI.ResultStatusCode
+function raw_status(model::Model)
+    return MOI.get(model, MOI.RawStatusString())
 end
 
 """
-    dual_status(model::Model)
+    primal_status(model::Model; result::Int = 1)
+
+Return the status of the most recent primal solution of the solver (i.e., the
+MathOptInterface model attribute `PrimalStatus`) associated with the result
+index `result`.
+
+See also: [`result_count`](@ref).
+"""
+function primal_status(model::Model; result::Int = 1)
+    return MOI.get(model, MOI.PrimalStatus(result))::MOI.ResultStatusCode
+end
+
+"""
+    dual_status(model::Model; result::Int = 1)
 
 Return the status of the most recent dual solution of the solver (i.e., the
-MathOptInterface model attribute `DualStatus`).
+MathOptInterface model attribute `DualStatus`) associated with the result
+index `result`.
+
+See also: [`result_count`](@ref).
 """
-function dual_status(model::Model)
-    return MOI.get(model, MOI.DualStatus())::MOI.ResultStatusCode
+function dual_status(model::Model; result::Int = 1)
+    return MOI.get(model, MOI.DualStatus(result))::MOI.ResultStatusCode
 end
 
 set_optimize_hook(model::Model, f) = (model.optimize_hook = f)
@@ -451,9 +608,122 @@ function solve_time(model::Model)
 end
 
 """
+    set_optimizer_attribute(model::Model, name::String, value)
+
+Sets solver-specific attribute identified by `name` to `value`.
+
+Note that this is equivalent to
+`set_optimizer_attribute(model, MOI.RawParameter(name), value)`.
+
+## Example
+
+```julia
+set_optimizer_attribute(model, "SolverSpecificAttributeName", true)
+```
+
+See also: [`set_optimizer_attributes`](@ref), [`get_optimizer_attribute`](@ref).
+"""
+function set_optimizer_attribute(model::Model, name::String, value)
+    return set_optimizer_attribute(model, MOI.RawParameter(name), value)
+end
+
+"""
+    set_optimizer_attribute(
+        model::Model, attr::MOI.AbstractOptimizerAttribute, value
+    )
+
+Set the solver-specific attribute `attr` in `model` to `value`.
+
+## Example
+
+```julia
+set_optimizer_attribute(model, MOI.Silent(), true)
+```
+
+See also: [`set_optimizer_attributes`](@ref), [`get_optimizer_attribute`](@ref).
+"""
+function set_optimizer_attribute(
+    model::Model, attr::MOI.AbstractOptimizerAttribute, value
+)
+    return MOI.set(model, attr, value)
+end
+
+@deprecate set_parameter set_optimizer_attribute
+
+"""
+    set_optimizer_attributes(model::Model, pairs::Pair...)
+
+Given a list of `attribute => value` pairs, calls
+`set_optimizer_attribute(model, attribute, value)` for each pair.
+
+## Example
+
+```julia
+model = Model(Ipopt.Optimizer)
+set_optimizer_attributes(model, "tol" => 1e-4, "max_iter" => 100)
+```
+is equivalent to:
+```julia
+model = Model(Ipopt.Optimizer)
+set_optimizer_attribute(model, "tol", 1e-4)
+set_optimizer_attribute(model, "max_iter", 100)
+```
+
+See also: [`set_optimizer_attribute`](@ref), [`get_optimizer_attribute`](@ref).
+"""
+function set_optimizer_attributes(model::Model, pairs::Pair...)
+    for (name, value) in pairs
+        set_optimizer_attribute(model, name, value)
+    end
+end
+
+@deprecate set_parameters set_optimizer_attributes
+
+"""
+    get_optimizer_attribute(model, name::String)
+
+Return the value associated with the solver-specific attribute named `name`.
+
+Note that this is equivalent to
+`get_optimizer_attribute(model, MOI.RawParameter(name))`.
+
+## Example
+
+```julia
+get_optimizer_attribute(model, "SolverSpecificAttributeName")
+```
+
+See also: [`set_optimizer_attribute`](@ref), [`set_optimizer_attributes`](@ref).
+"""
+function get_optimizer_attribute(model::Model, name::String)
+    return get_optimizer_attribute(model, MOI.RawParameter(name))
+end
+
+"""
+    get_optimizer_attribute(
+        model::Model, attr::MOI.AbstractOptimizerAttribute
+    )
+
+Return the value of the solver-specific attribute `attr` in `model`.
+
+## Example
+
+```julia
+get_optimizer_attribute(model, MOI.Silent())
+```
+
+See also: [`set_optimizer_attribute`](@ref), [`set_optimizer_attributes`](@ref).
+"""
+function get_optimizer_attribute(
+    model::Model, attr::MOI.AbstractOptimizerAttribute
+)
+    return MOI.get(model, attr)
+end
+
+"""
     set_silent(model::Model)
 
-Takes precedence over any other attribute controlling verbosity 
+Takes precedence over any other attribute controlling verbosity
 and requires the solver to produce no output.
 """
 function set_silent(model::Model)
@@ -470,9 +740,75 @@ function unset_silent(model::Model)
     return MOI.set(model, MOI.Silent(), false)
 end
 
-# Abstract base type for all scalar types
-abstract type AbstractJuMPScalar end
+"""
+    set_time_limit_sec(model::Model, limit)
 
+Sets the time limit (in seconds) of the solver.
+Can be unset using `unset_time_limit_sec` or with `limit` set to `nothing`.
+"""
+function set_time_limit_sec(model::Model, limit)
+    return MOI.set(model, MOI.TimeLimitSec(), limit)
+end
+
+"""
+    unset_time_limit_sec(model::Model)
+
+Unsets the time limit of the solver. Can be set using `set_time_limit_sec`.
+"""
+function unset_time_limit_sec(model::Model)
+    return MOI.set(model, MOI.TimeLimitSec(), nothing)
+end
+
+"""
+    time_limit_sec(model::Model)
+
+Gets the time limit (in seconds) of the model (`nothing` if unset). Can be set using `set_time_limit_sec`.
+"""
+function time_limit_sec(model::Model)
+    return MOI.get(model, MOI.TimeLimitSec())
+end
+
+"""
+    simplex_iterations(model::Model)
+
+Gets the cumulative number of simplex iterations during the most-recent optimization.
+
+Solvers must implement `MOI.SimplexIterations()` to use this function.
+"""
+function simplex_iterations(model::Model)
+    return MOI.get(model, MOI.SimplexIterations())
+end
+
+"""
+    barrier_iterations(model::Model)
+
+Gets the cumulative number of barrier iterations during the most recent optimization.
+
+Solvers must implement `MOI.BarrierIterations()` to use this function.
+"""
+function barrier_iterations(model::Model)
+    return MOI.get(model, MOI.BarrierIterations())
+end
+
+"""
+    node_count(model::Model)
+
+Gets the total number of branch-and-bound nodes explored during the most recent
+optimization in a Mixed Integer Program.
+
+Solvers must implement `MOI.NodeCount()` to use this function.
+"""
+function node_count(model::Model)
+    return MOI.get(model, MOI.NodeCount())
+end
+
+# Abstract base type for all scalar types
+# The subtyping of `AbstractMutable` will allow calls of some `Base` functions
+# to be redirected to a method in MA that handles type promotion more carefuly
+# (e.g. the promotion in sparse matrix products in SparseArrays usually does not
+# work for JuMP types) and exploits the mutability of `AffExpr` and `QuadExpr`.
+abstract type AbstractJuMPScalar <: _MA.AbstractMutable end
+Base.ndims(::Type{<:AbstractJuMPScalar}) = 0
 
 # These are required to create symmetric containers of AbstractJuMPScalars.
 LinearAlgebra.symmetric_type(::Type{T}) where T <: AbstractJuMPScalar = T
@@ -513,14 +849,6 @@ function Base.showerror(io::IO, ex::VariableNotOwnedError)
     print(io, "VariableNotOwnedError: Variable not owned by model present in $(ex.context)")
 end
 
-
-Base.copy(v::VariableRef, new_model::Model) = VariableRef(new_model, v.index)
-Base.copy(x::Nothing, new_model::AbstractModel) = nothing
-# TODO: Replace with vectorized copy?
-function Base.copy(v::AbstractArray{VariableRef}, new_model::AbstractModel)
-    return (var -> VariableRef(new_model, var.index)).(v)
-end
-
 _moi_optimizer_index(model::MOI.AbstractOptimizer, index::MOI.Index) = index
 function _moi_optimizer_index(model::MOIU.CachingOptimizer, index::MOI.Index)
     if MOIU.state(model) == MOIU.NO_OPTIMIZER
@@ -538,7 +866,7 @@ end
 function _moi_optimizer_index(model::MOI.Bridges.LazyBridgeOptimizer,
                               index::MOI.Index)
     if index isa MOI.ConstraintIndex &&
-        MOI.Bridges.is_bridged(model, typeof(index))
+        MOI.Bridges.is_bridged(model, index)
         error("There is no `optimizer_index` for $(typeof(index)) constraints",
               " because they are bridged.")
     else
@@ -596,8 +924,8 @@ struct OptimizeNotCalled <: Exception end
 """
     struct NoOptimizer <: Exception end
 
-No optimizer is set. The optimizer can be provided at the [`Model`](@ref)
-constructor or at the [`optimize!`](@ref) call with [`with_optimizer`](@ref).
+No optimizer is set. The optimizer can be provided to the [`Model`](@ref)
+constructor or by calling [`set_optimizer`](@ref).
 """
 struct NoOptimizer <: Exception end
 
@@ -633,6 +961,14 @@ function MOI.get(model::Model, attr::MOI.AbstractModelAttribute)
         MOI.get(backend(model), attr)
     end
 end
+"""
+    get(model::Model, attr::MathOptInterface.AbstractOptimizerAttribute)
+
+Return the value of the attribute `attr` from the model's MOI backend.
+"""
+function MOI.get(model::Model, attr::MOI.AbstractOptimizerAttribute)
+    MOI.get(backend(model), attr)
+end
 function MOI.get(model::Model, attr::MOI.AbstractVariableAttribute,
                  v::VariableRef)
     check_belongs_to_model(v, model)
@@ -665,6 +1001,10 @@ function MOI.set(model::Model, attr::MOI.AbstractConstraintAttribute,
     MOI.set(backend(model), attr, index(cr), value)
 end
 
+const _Constant = Union{Number, UniformScaling}
+_constant_to_number(x::Number) = x
+_constant_to_number(J::UniformScaling) = J.λ
+
 # GenericAffineExpression, AffExpr, AffExprConstraint
 include("aff_expr.jl")
 
@@ -672,15 +1012,21 @@ include("aff_expr.jl")
 # GenericQuadConstraint, QuadConstraint
 include("quad_expr.jl")
 
+include("mutable_arithmetics.jl")
+
 include("sets.jl")
 
+# Indicator constraint
+include("indicator.jl")
+# Complementarity constraint
+include("complement.jl")
 # SDConstraint
 include("sd.jl")
 
 """
     Base.getindex(m::JuMP.AbstractModel, name::Symbol)
 
-To allow easy accessing of JuMP tVariables and Constraints via `[]` syntax.
+To allow easy accessing of JuMP Variables and Constraints via `[]` syntax.
 Returns the variable, or group of variables, or constraint, or group of constraints, of the given name which were added to the model. This errors if multiple variables or constraints share the same name.
 """
 function Base.getindex(m::JuMP.AbstractModel, name::Symbol)
@@ -695,15 +1041,24 @@ function Base.getindex(m::JuMP.AbstractModel, name::Symbol)
 end
 
 """
-    Base.setindex!(m::JuMP.Model, value, name::Symbol)
+    Base.setindex!(m::JuMP.AbstractModel, value, name::Symbol)
 
 stores the object `value` in the model `m` using so that it can be accessed via `getindex`.  Can be called with `[]` syntax.
 """
-function Base.setindex!(m::JuMP.Model, value, name::Symbol)
-    # if haskey(m.obj_dict, name)
+function Base.setindex!(model::AbstractModel, value, name::Symbol)
+    # if haskey(object_dictionary(model), name)
     #     warn("Overwriting the object $name stored in the model. Consider using anonymous variables and constraints instead")
     # end
-    m.obj_dict[name] = value
+    object_dictionary(model)[name] = value
+end
+
+"""
+    haskey(model::AbstractModel, name::Symbol)
+
+Determine whether the model has a mapping for a given name.
+"""
+function Base.haskey(model::AbstractModel, name::Symbol)
+    return haskey(object_dictionary(model), name)
 end
 
 """
@@ -732,30 +1087,45 @@ function operator_warn(model::Model)
     end
 end
 
-# Types used in the nonlinear code
 # TODO: rename "m" field to "model" for style compliance
+"""
+    NonlinearExpression
+
+A struct to represent a nonlinear expression.
+
+Create an expression using [`@NLexpression`](@ref).
+"""
 struct NonlinearExpression
     m::Model
     index::Int
 end
 
+"""
+    NonlinearParameter
+
+A struct to represent a nonlinear parameter.
+
+Create a parameter using [`@NLparameter`](@ref).
+"""
 struct NonlinearParameter <: AbstractJuMPScalar
     m::Model
     index::Int
 end
 
 include("copy.jl")
-include("Containers/Containers.jl")
 include("operators.jl")
 include("macros.jl")
 include("optimizer_interface.jl")
 include("nlp.jl")
 include("print.jl")
 include("lp_sensitivity.jl")
-
+include("lp_sensitivity2.jl")
+include("callbacks.jl")
+include("file_formats.jl")
 
 # JuMP exports everything except internal symbols, which are defined as those
-# whose name starts with an underscore. If you don't want all of these symbols
+# whose name starts with an underscore. Macros whose names start with
+# underscores are internal as well. If you don't want all of these symbols
 # in your environment, then use `import JuMP` instead of `using JuMP`.
 
 # Do not add JuMP-defined symbols to this exclude list. Instead, rename them
@@ -764,7 +1134,8 @@ const _EXCLUDE_SYMBOLS = [Symbol(@__MODULE__), :eval, :include]
 
 for sym in names(@__MODULE__, all=true)
     sym_string = string(sym)
-    if sym in _EXCLUDE_SYMBOLS || startswith(sym_string, "_")
+    if sym in _EXCLUDE_SYMBOLS || startswith(sym_string, "_") ||
+         startswith(sym_string, "@_")
         continue
     end
     if !(Base.isidentifier(sym) || (startswith(sym_string, "@") &&

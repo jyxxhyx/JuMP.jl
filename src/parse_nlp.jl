@@ -1,7 +1,7 @@
 #  Copyright 2017, Iain Dunning, Joey Huchette, Miles Lubin, and contributors
 #  This Source Code Form is subject to the terms of the Mozilla Public
 #  License, v. 2.0. If a copy of the MPL was not distributed with this
-#  file, You can obtain one at http://mozilla.org/MPL/2.0/.
+#  file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 # Returns the block expression inside a :let that holds the code to be run.
 # The other block (not returned) is for declaring variables in the scope of the
@@ -9,6 +9,10 @@
 function _let_code_block(ex::Expr)
     @assert isexpr(ex, :let)
     return ex.args[2]
+end
+
+function _error_curly(x)
+    Base.error("The curly syntax (sum{},prod{},norm2{}) is no longer supported. Expression: $x.")
 end
 
 # generates code which converts an expression into a NodeData array (tape)
@@ -31,7 +35,7 @@ function _parse_NL_expr(m, x, tapevar, parent, values)
         push!(block.args, :($parentvar = length($tapevar)))
 
 
-        code = _parse_gen(x.args[2], t -> _parse_NL_expr(m, t, tapevar, parentvar, values))
+        code = _MA.rewrite_generator(x.args[2], t -> _parse_NL_expr(m, t, tapevar, parentvar, values))
         push!(block.args, code)
         return codeblock
     end
@@ -217,6 +221,14 @@ end
 
 function _parse_NL_expr_runtime(m::Model, x, tape, parent, values)
     error("Unexpected object $x (of type $(typeof(x)) in nonlinear expression.")
+end
+
+function _parse_NL_expr_runtime(m, x, tape, parent, values)
+    error(
+        "Encountered an error parsing nonlinear expression: we don't support " *
+        "models of type $(typeof(m)). In general, JuMP's nonlinear features " *
+        "don't work with JuMP-extensions."
+    )
 end
 
 function _expression_complexity(ex::Expr)

@@ -1,13 +1,24 @@
 #  Copyright 2017, Iain Dunning, Joey Huchette, Miles Lubin, and contributors
 #  This Source Code Form is subject to the terms of the Mozilla Public
 #  License, v. 2.0. If a copy of the MPL was not distributed with this
-#  file, You can obtain one at http://mozilla.org/MPL/2.0/.
+#  file, You can obtain one at https://mozilla.org/MPL/2.0/.
 #############################################################################
 # JuMP
 # An algebraic modeling language for Julia
-# See http://github.com/JuliaOpt/JuMP.jl
+# See https://github.com/jump-dev/JuMP.jl
 #############################################################################
 # This file contains objective-related functions
+
+"""
+    relative_gap(model::Model)
+
+Return the final relative optimality gap after a call to `optimize!(model)`.
+Exact value depends upon implementation of MathOptInterface.RelativeGap()
+by the particular solver used for optimization.
+"""
+function relative_gap(model::Model)::Float64
+    return MOI.get(model, MOI.RelativeGap())
+end
 
 """
     objective_bound(model::Model)
@@ -15,14 +26,36 @@
 Return the best known bound on the optimal objective value after a call to
 `optimize!(model)`.
 """
-objective_bound(model::Model)::Float64 = MOI.get(model, MOI.ObjectiveBound())
+function objective_bound(model::Model)::Float64
+    return MOI.get(model, MOI.ObjectiveBound())
+end
 
 """
-    objective_value(model::Model)
+    objective_value(model::Model; result::Int = 1)
 
-Return the objective value after a call to `optimize!(model)`.
+Return the objective value associated with result index `result` of the
+most-recent solution returned by the solver.
+
+See also: [`result_count`](@ref).
 """
-objective_value(model::Model)::Float64 = MOI.get(model, MOI.ObjectiveValue())
+function objective_value(model::Model; result::Int = 1)::Float64
+    return MOI.get(model, MOI.ObjectiveValue(result))
+end
+
+"""
+    dual_objective_value(model::Model; result::Int = 1)
+
+Return the value of the objective of the dual problem associated with result
+index `result` of the most-recent solution returned by the solver.
+
+Throws `MOI.UnsupportedAttribute{MOI.DualObjectiveValue}` if the solver does
+not support this attribute.
+
+See also: [`result_count`](@ref).
+"""
+function dual_objective_value(model::Model; result::Int = 1)::Float64
+    return MOI.get(model, MOI.DualObjectiveValue(result))
+end
 
 """
     objective_sense(model::Model)::MathOptInterface.OptimizationSense
@@ -82,14 +115,37 @@ function set_objective_function(model::Model, func::Real)
         MOI.ScalarAffineTerm{Float64}[], Float64(func)))
 end
 
-function set_objective(model::Model, sense::MOI.OptimizationSense,
-                       func::Union{AbstractJuMPScalar, Real})
-    set_objective_sense(model, sense)
-    set_objective_function(model, func)
+function set_objective_function(model::AbstractModel, ::MutableArithmetics.Zero)
+    set_objective_function(model, 0.0)
 end
 
-function set_objective(model::Model, sense::MOI.OptimizationSense, func)
+function set_objective_function(model::AbstractModel, func)
     error("The objective function `$(func)` is not supported by JuMP.")
+end
+
+"""
+    set_objective(model::AbstractModel, sense::MOI.OptimizationSense, func)
+
+The functional equivalent of the [`@objective`](@ref) macro.
+
+Sets the objective sense and objective function simultaneously, and is
+equivalent to:
+```julia
+set_objective_sense(model, sense)
+set_objective_function(model, func)
+```
+
+## Examples
+
+```jldoctest; setup=:(using JuMP)
+model = Model()
+@variable(model, x)
+set_objective(model, MOI.MIN_SENSE, x)
+```
+"""
+function set_objective(model::AbstractModel, sense::MOI.OptimizationSense, func)
+    set_objective_sense(model, sense)
+    set_objective_function(model, func)
 end
 
 """
@@ -140,17 +196,10 @@ as it is convertible to a quadratic function, it can be queried as a quadratic
 function and the result is quadratic.
 
 However, it is not convertible to a variable.
-```jldoctest objective_function; filter = r"Stacktrace:.*"s
+```jldoctest objective_function; filter = r"MathOptInterface\\."s
 julia> objective_function(model, VariableRef)
-ERROR: InexactError: convert(MathOptInterface.SingleVariable, MathOptInterface.ScalarAffineFunction{Float64}(MathOptInterface.ScalarAffineTerm{Float64}[ScalarAffineTerm{Float64}(2.0, VariableIndex(1))], 1.0))
-Stacktrace:
- [1] convert at /home/blegat/.julia/dev/MathOptInterface/src/functions.jl:398 [inlined]
- [2] get(::JuMP.JuMPMOIModel{Float64}, ::MathOptInterface.ObjectiveFunction{MathOptInterface.SingleVariable}) at /home/blegat/.julia/dev/MathOptInterface/src/Utilities/model.jl:290
- [3] get at /home/blegat/.julia/dev/MathOptInterface/src/Utilities/universalfallback.jl:114 [inlined]
- [4] get at /home/blegat/.julia/dev/MathOptInterface/src/Utilities/cachingoptimizer.jl:439 [inlined]
- [5] get(::MathOptInterface.Bridges.LazyBridgeOptimizer{MathOptInterface.Utilities.CachingOptimizer{MathOptInterface.AbstractOptimizer,MathOptInterface.Utilities.UniversalFallback{JuMP.JuMPMOIModel{Float64}}},MathOptInterface.Bridges.AllBridgedConstraints{Float64}}, ::MathOptInterface.ObjectiveFunction{MathOptInterface.SingleVariable}) at /home/blegat/.julia/dev/MathOptInterface/src/Bridges/bridgeoptimizer.jl:172
- [6] objective_function(::Model, ::Type{VariableRef}) at /home/blegat/.julia/dev/JuMP/src/objective.jl:129
- [7] top-level scope at none:0
+ERROR: InexactError: convert(MathOptInterface.SingleVariable, MathOptInterface.ScalarAffineFunction{Float64}(MathOptInterface.ScalarAffineTerm{Float64}[MathOptInterface.ScalarAffineTerm{Float64}(2.0, MathOptInterface.VariableIndex(1))], 1.0))
+[...]
 ```
 """
 function objective_function(model::Model,

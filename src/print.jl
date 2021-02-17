@@ -1,11 +1,11 @@
 #  Copyright 2017, Iain Dunning, Joey Huchette, Miles Lubin, and contributors
 #  This Source Code Form is subject to the terms of the Mozilla Public
 #  License, v. 2.0. If a copy of the MPL was not distributed with this
-#  file, You can obtain one at http://mozilla.org/MPL/2.0/.
+#  file, You can obtain one at https://mozilla.org/MPL/2.0/.
 #############################################################################
 # JuMP
 # An algebraic modeling language for Julia
-# See http://github.com/JuliaOpt/JuMP.jl
+# See https://github.com/jump-dev/JuMP.jl
 #############################################################################
 # print.jl
 # All "pretty printers" for JuMP types.
@@ -201,7 +201,7 @@ end
 function model_string(print_mode, model::AbstractModel)
     ijl = print_mode == IJuliaMode
     sep = ijl ? " & " : " "
-    eol = ijl ? "\\\\\n" : "\n"
+    eol = ijl ? "\\\\" : "\n"
     sense = objective_sense(model)
     str = ""
     if sense == MOI.MAX_SENSE
@@ -231,10 +231,51 @@ function model_string(print_mode, model::AbstractModel)
     if !isempty(constraints)
         str *= eol
     end
+    # TODO: Generalize this when similar functionality is needed for
+    # AbstractModel.
+    nl_subexpressions = _nl_subexpression_string(print_mode, model)
+    if !isempty(nl_subexpressions)
+        str *= ijl ? "\\text{With NL expressions} \\quad" :
+            "With NL expressions" * eol
+        str *= sep * join(nl_subexpressions, eol * sep)
+        str *= eol
+    end
     if ijl
-        str = "\\begin{alignat*}{1}" * str * "\\end{alignat*}\n"
+        str = "\\begin{aligned}" * str * "\\end{aligned}"
     end
     return str
+end
+
+_nl_subexpression_string(print_mode, ::AbstractModel) = String[]
+
+function _nl_subexpression_string(print_mode, model::Model)
+    strings = String[]
+    if model.nlp_data !== nothing
+        num_subexpressions = length(model.nlp_data.nlexpr)::Int
+        for k in 1:num_subexpressions
+            ex = model.nlp_data.nlexpr[k]
+            expr_string = _tape_to_expr(
+                model,
+                1, # start index in the expression
+                ex.nd,
+                adjmat(ex.nd),
+                ex.const_values,
+                [], # parameter_values (not used)
+                [], # subexpressions (not needed because !splat_subexpressions)
+                model.nlp_data.user_operators,
+                false, # generic_variable_names
+                false, # splat_subexpressions
+                print_mode,
+            )
+            if print_mode == IJuliaMode
+                expr_name = "subexpression_{$k}"
+            else
+                expr_name = "subexpression[$k]"
+            end
+            push!(strings, "$expr_name: $expr_string")
+        end
+    end
+    return strings
 end
 
 """
@@ -280,12 +321,23 @@ function function_string(::Type{REPLMode}, v::AbstractVariableRef)
 end
 function function_string(::Type{IJuliaMode}, v::AbstractVariableRef)
     var_name = name(v)
-    if !isempty(var_name)
-        # TODO: This is wrong if variable name constains extra "]"
-        return replace(replace(var_name, "[" => "_{", count = 1), "]" => "}")
-    else
+    if isempty(var_name)
         return "noname"
     end
+    # We need to escape latex math characters that appear in the name.
+    # However, it's probably impractical to catch everything, so let's just
+    # escape the common ones:
+    # Escape underscores to prevent them being treated as subscript markers.
+    var_name = replace(var_name, "_" => "\\_")
+    # Escape carets to prevent them being treated as superscript markers.
+    var_name = replace(var_name, "^" => "\\^")
+    # Convert any x[args] to x_{args} so that indices on x print as subscripts.
+    m = match(r"^(.*)\[(.+)\]$", var_name)
+    if m !== nothing
+        var_name = m[1] * "_{" * m[2] * "}"
+    end
+
+    return var_name
 end
 
 #------------------------------------------------------------------------
@@ -402,8 +454,7 @@ function constraints_string(print_mode, model::Model)
     strings = String[]
     for (F, S) in list_of_constraint_types(model)
         for cref in all_constraints(model, F, S)
-            con = constraint_object(cref)
-            push!(strings, constraint_string(print_mode, con))
+            push!(strings, constraint_string(print_mode, cref, in_math_mode = true))
         end
     end
     if model.nlp_data !== nothing
@@ -468,7 +519,7 @@ end
 function function_string(print_mode::Type{IJuliaMode},
                          A::AbstractMatrix{<:AbstractJuMPScalar})
     str = sprint(show, MIME"text/plain"(), A)
-    str = "\\begin{bmatrix}\n"
+    str = "\\begin{bmatrix}"
     for i in 1:size(A, 1)
         line = ""
         for j in 1:size(A, 2)
@@ -481,7 +532,7 @@ function function_string(print_mode::Type{IJuliaMode},
                 line *= function_string(print_mode, A[i, j])
             end
         end
-        str *= line * "\\\\\n"
+        str *= line * "\\\\"
     end
     return str * "\\end{bmatrix}"
 end
@@ -497,6 +548,14 @@ function function_string(print_mode, constraint::AbstractConstraint)
     f = reshape_vector(jump_function(constraint), shape(constraint))
     return function_string(print_mode, f)
 end
+
+"""
+    in_set_string(print_mode::Type{<:PrintMode}, set)
+
+Return a `String` representing the membership to the set `set` using print mode
+`print_mode`.
+"""
+function in_set_string end
 
 function in_set_string(print_mode, set::MOI.LessThan)
     return string(_math_symbol(print_mode, :leq), " ", set.upper)
@@ -519,23 +578,21 @@ end
 in_set_string(print_mode, ::MOI.ZeroOne) = "binary"
 in_set_string(print_mode, ::MOI.Integer) = "integer"
 
-# TODO: Convert back to JuMP types for sets like PSDCone.
-# TODO: Consider fancy latex names for some sets. They're currently printed as
-# regular text in math mode which looks a bit awkward.
-"""
-    in_set_string(print_mode::Type{<:JuMP.PrintMode},
-                  set::Union{PSDCone, MOI.AbstractSet})
+in_set_string(::Type{IJuliaMode}, ::MOI.ZeroOne) = "\\in \\{0, 1\\}"
+in_set_string(::Type{IJuliaMode}, ::MOI.Integer) = "\\in \\mathbb{Z}"
 
-Return a `String` representing the membership to the set `set` using print mode
-`print_mode`.
-"""
 function in_set_string(print_mode, set::Union{PSDCone, MOI.AbstractSet})
-    return string(_math_symbol(print_mode, :in), " ", set)
+    # Use an `if` here instead of multiple dispatch to avoid ambiguity errors.
+    if print_mode == REPLMode
+        return _math_symbol(print_mode, :in) * " $(set)"
+    else
+        set_str = replace(replace(string(set), "{" => "\\{"), "}" => "\\}")
+        return "\\in \\text{$(set_str)}"
+    end
 end
 
 """
-    in_set_string(print_mode::Type{<:JuMP.PrintMode},
-                  constraint::JuMP.AbstractConstraint)
+    in_set_string(print_mode::Type{<:PrintMode}, constraint::AbstractConstraint)
 
 Return a `String` representing the membership to the set of the constraint
 `constraint` using print mode `print_mode`.
@@ -556,31 +613,57 @@ function constraint_string(print_mode, constraint_object::AbstractConstraint)
         return func_str * " " * in_set_str
     end
 end
-function constraint_string(print_mode, constraint_name,
-                           constraint_object::AbstractConstraint)
-    constraint_without_name = constraint_string(print_mode, constraint_object)
+
+function constraint_string(
+    print_mode,
+    constraint_name::String,
+    constraint_object::AbstractConstraint;
+    in_math_mode::Bool = false,
+)
+    prefix = isempty(constraint_name) ? "" : constraint_name * " : "
+    constraint_str = constraint_string(print_mode, constraint_object)
     if print_mode == IJuliaMode
-        constraint_without_name = _wrap_in_inline_math_mode(constraint_without_name)
-    end
-    if isempty(constraint_name)
-        return constraint_without_name
+        if in_math_mode
+            return constraint_str
+        elseif isempty(prefix)
+            return _wrap_in_math_mode(constraint_str)
+        else
+            return prefix * _wrap_in_inline_math_mode(constraint_str)
+        end
     else
-        return constraint_name * " : " * constraint_without_name
+        return prefix * constraint_str
     end
 end
-function constraint_string(print_mode, ref::ConstraintRef)
-    return constraint_string(print_mode, name(ref), constraint_object(ref))
+function constraint_string(print_mode, ref::ConstraintRef; in_math_mode = false)
+    return constraint_string(print_mode, name(ref), constraint_object(ref), in_math_mode = in_math_mode)
 end
 
 #------------------------------------------------------------------------
 ## _NonlinearExprData
 #------------------------------------------------------------------------
-function nl_expr_string(model::Model, mode, c::_NonlinearExprData)
-    return string(_tape_to_expr(model, 1, c.nd, adjmat(c.nd), c.const_values,
-                                [], [], model.nlp_data.user_operators, false,
-                                false, mode))
+function nl_expr_string(model::Model, print_mode, c::_NonlinearExprData)
+    ex = _tape_to_expr(model, 1, c.nd, adjmat(c.nd), c.const_values,
+                       [], [], model.nlp_data.user_operators, false,
+                       false, print_mode)
+    if print_mode == IJuliaMode
+        ex = _latexify_exponentials(ex)
+    end
+    return string(ex)
 end
 
+# Change x ^ -2.0 to x ^ {-2.0}
+# x ^ (x ^ 2.0) to x ^ {x ^ {2.0}}
+# and so on
+_latexify_exponentials(ex) = ex
+function _latexify_exponentials(ex::Expr)
+    for i = 1:length(ex.args)
+        ex.args[i] = _latexify_exponentials(ex.args[i])
+    end
+    if length(ex.args) == 3 && ex.args[1] == :^
+        ex.args[3] = Expr(:braces, ex.args[3])
+    end
+    return ex
+end
 #------------------------------------------------------------------------
 ## _NonlinearConstraint
 #------------------------------------------------------------------------
@@ -622,12 +705,25 @@ end
 ## Opaque nonlinear objects
 #------------------------------------------------------------------------
 # TODO: This could be pretty printed.
-function Base.show(io::IO, ex::NonlinearExpression)
-    Base.show(io, "Reference to nonlinear expression #$(ex.index)")
+
+function function_string(::Type{<:PrintMode}, p::NonlinearExpression)
+    return "Reference to nonlinear expression #$(p.index)"
 end
 
-function Base.show(io::IO, p::NonlinearParameter)
-    Base.show(io, "Reference to nonlinear parameter #$(p.index)")
+function function_string(::Type{<:PrintMode}, p::NonlinearParameter)
+    return "Reference to nonlinear parameter #$(p.index)"
+end
+
+function Base.show(io::IO, ex::Union{NonlinearExpression,NonlinearParameter})
+    Base.show(io, function_string(REPLMode, ex))
+end
+
+function Base.show(
+    io::IO,
+    ::MIME"text/latex",
+    ex::Union{NonlinearExpression,NonlinearParameter},
+)
+    print(io, function_string(IJuliaMode, ex))
 end
 
 # TODO: Print the status of the NLPEvaluator, features available, etc.

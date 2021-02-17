@@ -1,7 +1,7 @@
 #  Copyright 2017, Iain Dunning, Joey Huchette, Miles Lubin, and contributors
 #  This Source Code Form is subject to the terms of the Mozilla Public
 #  License, v. 2.0. If a copy of the MPL was not distributed with this
-#  file, You can obtain one at http://mozilla.org/MPL/2.0/.
+#  file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 """
     copy_extension_data(data, new_model::AbstractModel, model::AbstractModel)
@@ -11,24 +11,6 @@ data of the new model `new_model`. A method should be added for any JuMP
 extension storing data in the `ext` field.
 """
 function copy_extension_data end
-
-"""
-    _copy_single_variable_constraints(
-        dest::Dict{MOI.VariableIndex, _MOICON{MOI.SingleVariable, S}},
-        src::Dict{MOI.VariableIndex, _MOICON{MOI.SingleVariable, S}},
-        index_map) where S
-
-Copy the single variable constraint indices of `src` into `dest` mapping
-variable and constraint indices using `index_map`.
-"""
-function _copy_single_variable_constraints(
-    dest::Dict{MOI.VariableIndex, _MOICON{MOI.SingleVariable, S}},
-    src::Dict{MOI.VariableIndex, _MOICON{MOI.SingleVariable, S}},
-    index_map) where S
-    for (variable_index, constraint_index) in src
-        dest[index_map[variable_index]] = index_map[constraint_index]
-    end
-end
 
 """
     ReferenceMap
@@ -41,15 +23,33 @@ struct ReferenceMap
     model::Model
     index_map::MOIU.IndexMap
 end
-function Base.getindex(reference_map::ReferenceMap, vref::VariableRef)
-    return VariableRef(reference_map.model,
-                       reference_map.index_map[index(vref)])
+
+function Base.getindex(map::ReferenceMap, vref::VariableRef)
+    return VariableRef(map.model, map.index_map[index(vref)])
 end
-function Base.getindex(reference_map::ReferenceMap, cref::ConstraintRef)
-    return ConstraintRef(reference_map.model,
-                         reference_map.index_map[index(cref)],
-                         cref.shape)
+
+function Base.getindex(map::ReferenceMap, cref::ConstraintRef)
+    return ConstraintRef(map.model, map.index_map[index(cref)], cref.shape)
 end
+
+function Base.getindex(map::ReferenceMap, expr::GenericAffExpr)
+    result = zero(expr)
+    for (coef, var) in linear_terms(expr)
+        add_to_expression!(result, coef, map[var])
+    end
+    result.constant = expr.constant
+    return result
+end
+
+function Base.getindex(map::ReferenceMap, expr::GenericQuadExpr)
+    aff = map[expr.aff]
+    terms = [
+        UnorderedPair(map[key.a], map[key.b]) => val
+        for (key, val) in expr.terms
+    ]
+    return GenericQuadExpr(aff, terms)
+end
+
 Base.broadcastable(reference_map::ReferenceMap) = Ref(reference_map)
 
 
@@ -100,20 +100,6 @@ function copy_model(model::Model)
     index_map = MOI.copy_to(backend(new_model), backend(model),
                             copy_names = true)
 
-    _copy_single_variable_constraints(
-        new_model.variable_to_lower_bound, model.variable_to_lower_bound,
-        index_map)
-    _copy_single_variable_constraints(
-        new_model.variable_to_upper_bound, model.variable_to_upper_bound,
-        index_map)
-    _copy_single_variable_constraints(
-        new_model.variable_to_fix, model.variable_to_fix, index_map)
-    _copy_single_variable_constraints(
-        new_model.variable_to_integrality, model.variable_to_integrality,
-        index_map)
-    _copy_single_variable_constraints(
-        new_model.variable_to_zero_one, model.variable_to_zero_one, index_map)
-
     new_model.optimize_hook = model.optimize_hook
 
     # TODO copy NLP data
@@ -125,7 +111,7 @@ function copy_model(model::Model)
     reference_map = ReferenceMap(new_model, index_map)
 
     for (name, value) in object_dictionary(model)
-        new_model.obj_dict[name] = getindex.(reference_map, value)
+        new_model[name] = getindex.(reference_map, value)
     end
 
     for (key, data) in model.ext
@@ -168,4 +154,24 @@ cref_new = model[:cref]
 function Base.copy(model::AbstractModel)
     new_model, _ = copy_model(model)
     return new_model
+end
+
+# Calling `deepcopy` over a JuMP model is not supported, nor planned to be
+# supported, because it would involve making a deep copy of the underlying
+# solver (behind a C pointer).
+function Base.deepcopy(::Model)
+    error("`JuMP.Model` does not support `deepcopy` as the reference to the underlying solver cannot be deep copied, use `copy` instead.")
+end
+
+function MOI.copy_to(dest::MOI.ModelLike, src::Model)
+    if src.nlp_data !== nothing
+        # Re-set the NLP block in-case things have changed since last
+        # solve.
+        MOI.set(src, MOI.NLPBlock(), _create_nlp_block_data(src))
+    end
+    return MOI.copy_to(dest, backend(src))
+end
+
+function MOI.copy_to(dest::Model, src::MOI.ModelLike)
+    return MOI.copy_to(backend(dest), src)
 end

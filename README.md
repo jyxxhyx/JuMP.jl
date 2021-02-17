@@ -1,117 +1,58 @@
 ![JuMP logo](https://www.juliaopt.org/images/jump-logo-with-text.svg "JuMP logo")
 ---
 
-[![Powered by NumFOCUS](https://img.shields.io/badge/powered%20by-NumFOCUS-orange.svg?style=flat&colorA=E1523D&colorB=007D8A)](http://numfocus.org)
+[![Powered by NumFOCUS](https://img.shields.io/badge/powered%20by-NumFOCUS-orange.svg?style=flat&colorA=E1523D&colorB=007D8A)](https://numfocus.org)
 
-JuMP is a domain-specific modeling language for **[mathematical optimization]**
-embedded in **[Julia]**. It currently supports a number of open-source and
-commercial solvers ([Artelys Knitro], [BARON], [Bonmin], [Cbc], [Clp], [Couenne], [CPLEX], [ECOS], [FICO Xpress], [GLPK],
-[Gurobi], [Ipopt], [MOSEK], [NLopt], [SCS]) for a variety of problem classes, including
-**[linear programming]**, **[(mixed) integer programming]**,
-**[second-order conic programming]**, **[semidefinite programming]**, and **[nonlinear programming]**.
+JuMP is a domain-specific modeling language for [mathematical optimization](https://en.wikipedia.org/wiki/Mathematical_optimization)
+embedded in [Julia](https://julialang.org/). You can find out more about us by
+visiting [jump.dev](https://jump.dev).
 
-[mathematical optimization]: http://en.wikipedia.org/wiki/Mathematical_optimization
-[Julia]: http://julialang.org/
-[Bonmin]: https://projects.coin-or.org/Bonmin
-[Couenne]: https://projects.coin-or.org/Couenne
-[Clp]: https://projects.coin-or.org/Clp
-[Cbc]: https://projects.coin-or.org/Cbc
-[ECOS]: https://github.com/ifa-ethz/ecos
-[FICO Xpress]: http://www.fico.com/en/products/fico-xpress-optimization-suite
-[GLPK]: http://www.gnu.org/software/glpk/
-[Gurobi]: http://www.gurobi.com/
-[MOSEK]: http://mosek.com/
-[CPLEX]: http://www-01.ibm.com/software/commerce/optimization/cplex-optimizer/
-[Ipopt]: https://projects.coin-or.org/Ipopt
-[Artelys Knitro]: http://artelys.com/en/optimization-tools/knitro
-[NLopt]: http://ab-initio.mit.edu/wiki/index.php/NLopt
-[SCS]: https://github.com/cvxgrp/scs
-[BARON]: http://archimedes.cheme.cmu.edu/?q=baron
-[linear programming]: http://en.wikipedia.org/wiki/Linear_programming
-[(mixed) integer programming]: http://en.wikipedia.org/wiki/Integer_programming
-[second-order conic programming]: http://en.wikipedia.org/wiki/Second-order_cone_programming
-[semidefinite programming]: https://en.wikipedia.org/wiki/Semidefinite_programming
-[nonlinear programming]: http://en.wikipedia.org/wiki/Nonlinear_programming
-
-JuMP makes it easy to specify and **solve optimization problems without expert knowledge**, yet at the same time allows experts to implement advanced algorithmic techniques such as exploiting efficient hot-starts in linear programming or using callbacks to interact with branch-and-bound solvers. JuMP is also **fast** - benchmarking has shown that it can create problems at similar speeds to special-purpose commercial tools such as AMPL while maintaining the expressiveness of a generic high-level programming language. JuMP can be easily embedded in complex work flows including simulations and web servers.
-
-Our documentation includes an installation guide, quick-start guide, and reference manual. The **[juliaopt-notebooks]** repository contains a small but growing collection of contributed examples. Submissions are welcome!
-
-[juliaopt-notebooks]: https://github.com/JuliaOpt/juliaopt-notebooks
-
-**See [NEWS](https://github.com/JuliaOpt/JuMP.jl/tree/master/NEWS.md) for
-a list of the significant breaking changes in the JuMP 0.19 release.**
-
-**Latest Release**: 0.19.2 (`release-0.19` branch)
-  * [Documentation](http://www.juliaopt.org/JuMP.jl/v0.19.2/)
-  * [Examples](https://github.com/JuliaOpt/JuMP.jl/tree/release-0.19/examples)
+**Latest Release**: 0.21.6 (`release-0.21` branch):
+  * Installation via the Julia package manager:
+    * `import Pkg; Pkg.add("JuMP")`
+  * Get help:
+    * Read the [Documentation](https://jump.dev/JuMP.jl/v0.21.6/)
+    * Ask a question on the [Community forum]
+    * Explore the [JuMPTutorials](https://github.com/jump-dev/JuMPTutorials.jl)
   * Testing status:
-    * TravisCI: [![Build Status](https://travis-ci.org/JuliaOpt/JuMP.jl.svg?branch=release-0.19)](https://travis-ci.org/JuliaOpt/JuMP.jl)
-
+    * Github Actions: [![Build Status](https://github.com/jump-dev/JuMP.jl/workflows/CI/badge.svg?branch=release-0.21)](https://github.com/jump-dev/JuMP.jl/actions?query=workflow%3ACI)
 
 **Development version** (`master` branch):
-  * [Documentation](http://www.juliaopt.org/JuMP.jl/dev/)
-  * [Examples](https://github.com/JuliaOpt/JuMP.jl/tree/master/examples)
+  * Installation via the Julia package manager:
+    * `import Pkg; Pkg.add(Pkg.PackageSpec(name="JuMP", rev="master"))`
+  * Get help:
+    * Read the [Documentation](https://jump.dev/JuMP.jl/dev/)
+    * Join the [Developer chatroom](https://gitter.im/JuliaOpt/JuMP-dev)
+    * Read the [NEWS](https://github.com/jump-dev/JuMP.jl/tree/master/NEWS.md)
   * Testing status:
-    * TravisCI: [![Build Status](https://travis-ci.org/JuliaOpt/JuMP.jl.svg?branch=master)](https://travis-ci.org/JuliaOpt/JuMP.jl)
-    * Test coverage:
-      [![Coverage Status](https://coveralls.io/repos/JuliaOpt/JuMP.jl/badge.svg?branch=master)](https://coveralls.io/r/JuliaOpt/JuMP.jl?branch=master)
-      [![codecov](https://codecov.io/gh/JuliaOpt/JuMP.jl/branch/master/graph/badge.svg)](https://codecov.io/gh/JuliaOpt/JuMP.jl)
-  * Changes: see [NEWS](https://github.com/JuliaOpt/JuMP.jl/tree/master/NEWS.md)
-  * [Developer chatroom](https://gitter.im/JuliaOpt/JuMP-dev)
+    * Github Actions: [![Build Status](https://github.com/jump-dev/JuMP.jl/workflows/CI/badge.svg?branch=master)](https://github.com/jump-dev/JuMP.jl/actions?query=workflow%3ACI)
+    * Test coverage: [![codecov](https://codecov.io/gh/jump-dev/JuMP.jl/branch/master/graph/badge.svg)](https://codecov.io/gh/jump-dev/JuMP.jl)
 
+## Need help?
 
-## Installation
+Use the [Community forum] to search for answers to previously asked questions,
+or ask a new question.
 
-JuMP can be installed through the Julia package manager:
+The post [PSA: make it easier to help you](https://discourse.julialang.org/t/psa-make-it-easier-to-help-you/14757),
+describes the best practices for asking a question.
 
-```julia
-julia> Pkg.add("JuMP")
-```
+[Community forum]: https://discourse.julialang.org/c/domain/opt
 
-For full installation instructions, including how to install solvers, see the documentation linked above.
+## Bug reports
 
+Please report any issues via the Github [issue tracker]. All types of issues
+are welcome and encouraged; this includes bug reports, documentation typos,
+feature requests, etc.
 
-## Supported problem classes
-
-Mathematical optimization encompasses a large variety of problem classes.
-We list below what is currently supported. See the documentation for more information.
-
-**Objective types**
-
-* Linear
-* Convex Quadratic
-* Nonlinear (convex and nonconvex)
-
-**Constraint types**
-
-* Linear
-* Convex Quadratic
-* Second-order Conic
-* Semidefinite
-* Nonlinear (convex and nonconvex)
-
-**Variable types**
-
-* Continuous
-* Integer-valued
-* Semicontinuous
-* Semi-integer
-
-
-## Bug reports and support
-
-Please report any issues via the Github **[issue tracker]**. All types of issues are welcome and encouraged; this includes bug reports, documentation typos, feature requests, etc. The **[Optimization (Mathematical)]** category on Discourse is appropriate for general discussion, including "how do I do this?" questions.
-
-[issue tracker]: https://github.com/JuliaOpt/JuMP.jl/issues
-[Optimization (Mathematical)]: https://discourse.julialang.org/c/domain/opt
-
+[issue tracker]: https://github.com/jump-dev/JuMP.jl/issues
 
 ## Citing JuMP
 
-If you find JuMP useful in your work, we kindly request that you cite the following paper ([pdf](https://mlubin.github.io/pdf/jump-sirev.pdf)):
+If you find JuMP useful in your work, we kindly request that you cite the
+following paper ([pdf](https://mlubin.github.io/pdf/jump-sirev.pdf)):
 
-    @article{DunningHuchetteLubin2017,
+```bibtex
+@article{DunningHuchetteLubin2017,
     author = {Iain Dunning and Joey Huchette and Miles Lubin},
     title = {JuMP: A Modeling Language for Mathematical Optimization},
     journal = {SIAM Review},
@@ -120,11 +61,14 @@ If you find JuMP useful in your work, we kindly request that you cite the follow
     pages = {295-320},
     year = {2017},
     doi = {10.1137/15M1020575},
-    }
+}
+```
 
-For an earlier work where we presented a prototype implementation of JuMP, see [here](http://dx.doi.org/10.1287/ijoc.2014.0623):
+For an earlier work where we presented a prototype implementation of JuMP, see
+[here](https://dx.doi.org/10.1287/ijoc.2014.0623):
 
-    @article{LubinDunningIJOC,
+```bibtex
+@article{LubinDunningIJOC,
     author = {Miles Lubin and Iain Dunning},
     title = {Computing in Operations Research Using Julia},
     journal = {INFORMS Journal on Computing},
@@ -133,25 +77,26 @@ For an earlier work where we presented a prototype implementation of JuMP, see [
     pages = {238-248},
     year = {2015},
     doi = {10.1287/ijoc.2014.0623},
-    }
+}
+```
 
-A preprint of this paper is [freely available](http://arxiv.org/abs/1312.1431).
+A preprint of this paper is [freely available](https://arxiv.org/abs/1312.1431).
 
 ---
 
-![NumFOCUS logo](http://www.juliaopt.org/JuMP.jl/dev/assets/numfocus-logo.png)
+![NumFOCUS logo](https://jump.dev/JuMP.jl/dev/assets/numfocus-logo.png)
 
-JuMP is a Sponsored Project of NumFOCUS, a 501(c)(3) nonprofit charity in the 
-United States. NumFOCUS provides JuMP with fiscal, legal, and administrative 
-support to help ensure the health and sustainability of the project. Visit 
+JuMP is a Sponsored Project of NumFOCUS, a 501(c)(3) nonprofit charity in the
+United States. NumFOCUS provides JuMP with fiscal, legal, and administrative
+support to help ensure the health and sustainability of the project. Visit
 [numfocus.org](https://numfocus.org) for more information.
 
-You can support JuMP by [donating](https://numfocus.salsalabs.org/donate-to-jump/index.html). 
+You can support JuMP by [donating](https://numfocus.salsalabs.org/donate-to-jump/index.html).
 
-Donations to JuMP are managed by NumFOCUS. For donors in the United States, 
-your gift is tax-deductible to the extent provided by law. As with any donation, 
+Donations to JuMP are managed by NumFOCUS. For donors in the United States,
+your gift is tax-deductible to the extent provided by law. As with any donation,
 you should consult with your tax adviser about your particular tax situation.
 
-JuMP's largest expense is the annual JuMP-dev workshop. Donations will help us 
-provide travel support for JuMP-dev attendees and take advantage of other 
+JuMP's largest expense is the annual JuMP-dev workshop. Donations will help us
+provide travel support for JuMP-dev attendees and take advantage of other
 opportunities that arise to support JuMP development.

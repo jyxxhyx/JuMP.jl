@@ -1,8 +1,17 @@
 #  Copyright 2017, Iain Dunning, Joey Huchette, Miles Lubin, and contributors
 #  This Source Code Form is subject to the terms of the Mozilla Public
 #  License, v. 2.0. If a copy of the MPL was not distributed with this
-#  file, You can obtain one at http://mozilla.org/MPL/2.0/.
+#  file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
+"""
+    error_if_direct_mode(model::Model, func::Symbol)
+
+Errors if `model` is in direct mode during a call from the function named
+`func`.
+
+Used internally within JuMP, or by JuMP extensions who do not want to support
+models in direct mode.
+"""
 function error_if_direct_mode(model::Model, func::Symbol)
     if mode(model) == DIRECT
         error("The `$func` function is not supported in DIRECT mode.")
@@ -32,27 +41,43 @@ function MOIU.attach_optimizer(model::Model)
     MOIU.attach_optimizer(backend(model))
 end
 
-function set_optimizer(model::Model, optimizer_factory::OptimizerFactory;
+"""
+    set_optimizer(model::Model, optimizer_factory;
+                  bridge_constraints::Bool=true)
+
+
+Creates an empty `MathOptInterface.AbstractOptimizer` instance by calling
+`optimizer_factory()` and sets it as the optimizer of `model`. Specifically,
+`optimizer_factory` must be callable with zero arguments and return an empty
+`MathOptInterface.AbstractOptimizer`.
+
+If `bridge_constraints` is true, constraints that are not supported by the
+optimizer are automatically bridged to equivalent supported constraints when
+an appropriate transformation is defined in the `MathOptInterface.Bridges`
+module or is defined in another module and is explicitly added.
+
+See [`set_optimizer_attributes`](@ref) and [`set_optimizer_attribute`](@ref) for setting
+solver-specific parameters of the optimizer.
+
+## Examples
+```julia
+model = Model()
+set_optimizer(model, GLPK.Optimizer)
+```
+"""
+function set_optimizer(model::Model, optimizer_constructor;
                        bridge_constraints::Bool=true)
     error_if_direct_mode(model, :set_optimizer)
-    optimizer = optimizer_factory()
     if bridge_constraints
-        # The names are handled by the first caching optimizer.
-        # If default_copy_to without names is supported, no need for a second
-        # cache.
-        if !MOIU.supports_default_copy_to(optimizer, false)
-            if mode(model) == MANUAL
-                # TODO figure out what to do in manual mode with the two caches
-                error("Bridges in `MANUAL` mode with an optimizer not ",
-                      "supporting `default_copy_to` is not supported yet")
-            end
-            universal_fallback = MOIU.UniversalFallback(_MOIModel{Float64}())
-            optimizer = MOIU.CachingOptimizer(universal_fallback, optimizer)
-        end
-        optimizer = MOI.Bridges.full_bridge_optimizer(optimizer, Float64)
+        # We set `with_names=false` because the names are handled by the first
+        # caching optimizer. If `default_copy_to` without names is supported,
+        # no need for a second cache.
+        optimizer = MOI.instantiate(optimizer_constructor, with_bridge_type=Float64, with_names=false)
         for bridge_type in model.bridge_types
             _moi_add_bridge(optimizer, bridge_type)
         end
+    else
+        optimizer = MOI.instantiate(optimizer_constructor)
     end
     MOIU.reset_optimizer(model, optimizer)
 end
@@ -68,41 +93,20 @@ function solve(::Model)
 end
 
 """
-    optimize!(model::Model,
-              optimizer_factory::Union{Nothing, OptimizerFactory}=nothing;
-              bridge_constraints::Bool=true,
+    optimize!(model::Model;
               ignore_optimize_hook=(model.optimize_hook === nothing),
               kwargs...)
 
-Optimize the model. If `optimizer_factory` is not `nothing`, it first sets the
-optimizer to a new one created using the optimizer factory. The factory can be
-created using the [`with_optimizer`](@ref) function. If `optimizer_factory` is
-`nothing` and no optimizer was set to `model` before calling this function, a
-[`NoOptimizer`](@ref) error is thrown.
+Optimize the model. If an optimizer has not been set yet (see
+[`set_optimizer`](@ref)), a [`NoOptimizer`](@ref) error is thrown.
 
 Keyword arguments `kwargs` are passed to the `optimize_hook`. An error is
 thrown if `optimize_hook` is `nothing` and keyword arguments are provided.
-
-## Examples
-
-The optimizer factory can either be given in the [`Model`](@ref) constructor
-as follows:
-```julia
-model = Model(with_optimizer(GLPK.Optimizer))
-# ...fill model with variables, constraints and objectives...
-# Solve the model with GLPK
-optimize!(model)
-```
-or in the `optimize!` call as follows:
-```julia
-model = Model()
-# ...fill model with variables, constraints and objectives...
-# Solve the model with GLPK
-optimize!(model, with_optimizer(GLPK.Optimizer))
-```
 """
 function optimize!(model::Model,
-                   optimizer_factory::Union{Nothing, OptimizerFactory}=nothing;
+                   # TODO: Remove the optimizer_factory and bridge_constraints
+                   # arguments when the deprecation error below is removed.
+                   optimizer_factory=nothing;
                    bridge_constraints::Bool=true,
                    ignore_optimize_hook=(model.optimize_hook === nothing),
                    kwargs...)
@@ -114,15 +118,9 @@ function optimize!(model::Model,
     end
 
     if optimizer_factory !== nothing
-        if mode(model) == DIRECT
-            error("An optimizer factory cannot be provided at the `optimize` call in DIRECT mode.")
-        end
-        if MOIU.state(backend(model)) != MOIU.NO_OPTIMIZER
-            error("An optimizer factory cannot both be provided in the `Model` constructor and at the `optimize` call.")
-        end
-        set_optimizer(model, optimizer_factory,
-                      bridge_constraints=bridge_constraints)
-        MOIU.attach_optimizer(model)
+        # This argument was deprecated in JuMP 0.21.
+        error("The optimizer factory argument is no longer accepted by " *
+              "`optimize!`. Call `set_optimizer` before `optimize!`.")
     end
 
     # If the user or an extension has provided an optimize hook, call
@@ -152,4 +150,33 @@ function optimize!(model::Model,
     end
 
     return
+end
+
+"""
+    compute_conflict!(model::Model)
+
+Compute a conflict if the model is infeasible. If an optimizer has not
+been set yet (see [`set_optimizer`](@ref)), a [`NoOptimizer`](@ref)
+error is thrown.
+
+The status of the conflict can be checked with the `MOI.ConflictStatus`
+model attribute. Then, the status for each constraint can be queried with
+the `MOI.ConstraintConflictStatus` attribute.
+"""
+function compute_conflict!(model::Model)
+    if mode(model) != DIRECT && MOIU.state(backend(model)) == MOIU.NO_OPTIMIZER
+        throw(NoOptimizer())
+    end
+    MOI.compute_conflict!(backend(model))
+    return
+end
+
+"""
+    result_count(model::Model)
+
+Return the number of results available to query after a call to
+[`optimize!`](@ref).
+"""
+function result_count(model::Model)::Int
+    return MOI.get(model, MOI.ResultCount())
 end
